@@ -12,6 +12,7 @@ variables:
   tag: '$(Build.BuildId)'
 
 stages:
+# Stage 1: Build
 - stage: Build
   displayName: Build image
   jobs:
@@ -27,3 +28,51 @@ stages:
         dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
         tags: |
           $(tag)
+
+# Stage 2: Test
+- stage: Test
+  displayName: Run Tests
+  dependsOn: Build
+  jobs:
+  - job: Test
+    displayName: Test the Docker image
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: Docker@2
+      displayName: Run tests in the Docker container
+      inputs:
+        command: run
+        containerName: test-container
+        imageName: $(tag)
+    - script: |
+        echo "Running unit tests"
+        docker exec test-container /bin/sh -c "run-your-tests.sh"
+      displayName: "Execute tests inside container"
+    - task: Docker@2
+      displayName: Stop and remove test container
+      inputs:
+        command: run
+        arguments: '--rm --name test-container $(tag)'
+
+# Stage 3: Deploy to Staging
+- stage: DeployStaging
+  displayName: Deploy to Staging
+  dependsOn: Test
+  jobs:
+  - job: Deploy
+    displayName: Deploy to staging environment
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: Docker@2
+      displayName: Push image to container registry
+      inputs:
+        command: push
+        tags: |
+          $(tag)
+    - script: |
+        echo "Deploying to staging environment"
+        docker pull $(tag)
+        docker run -d -p 8080:80 --name staging-container $(tag)
+      displayName: "Deploy Docker container to Staging"
